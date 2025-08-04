@@ -1,0 +1,246 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Mapa 1 - Google Sheets</title>
+    <style>
+        body, html { margin:0; padding:0; height:100%; width:100%; overflow-x:hidden; }
+        #map { height:100%; width:100%; }
+        #controls {
+            padding:10px; background:rgba(255,255,255,0.95);
+            position:absolute; top:60px; left:10px;
+            z-index:1000; border-radius:10px;
+            box-shadow:0px 0px 6px #888;
+            max-width:35%; display:none;
+        }
+        @media (max-width: 768px) {
+            #controls { max-width:55%; }
+        }
+        select, button, input {
+            margin:5px 0; width:100%; font-size:15px; padding:5px;
+        }
+        .button-group button { display:block; width:100%; margin:5px 0; }
+        #toggleButton {
+            position:absolute; top:10px; left:10px;
+            background:#007bff; color:white; border:none;
+            border-radius:6px; padding:8px 12px;
+            font-size:18px; z-index:1500; cursor:pointer;
+        }
+        #toggleButton span { display:block; font-size:12px; }
+        #errorMsg {
+            position:absolute; bottom:10px; left:10px; right:10px;
+            background:rgba(255,0,0,0.85); color:white; padding:8px;
+            border-radius:6px; text-align:center; font-size:14px;
+            display:none; z-index:2000;
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+</head>
+<body>
+<button id="toggleButton">☰<span>Filtros</span></button>
+<div id="controls">
+    <label>Condición:</label><br>
+    <select id="condicion">
+        <option value="">-- Seleccione --</option>
+        <option value="Programado">Programado</option>
+        <option value="Pendiente">Pendiente</option>
+    </select><br>
+    <label>Semana:</label><br>
+    <select id="semana">
+        <option value="">-- Seleccione --</option>
+        <option value="1">Semana 1</option>
+        <option value="2">Semana 2</option>
+        <option value="3">Semana 3</option>
+        <option value="4">Semana 4</option>
+    </select><br>
+    <label>Día de la Semana:</label><br>
+    <select id="dia">
+        <option value="">-- Seleccione --</option>
+        <option value="LUNES">Lunes</option>
+        <option value="MARTES">Martes</option>
+        <option value="MIERCOLES">Miércoles</option>
+        <option value="JUEVES">Jueves</option>
+        <option value="VIERNES">Viernes</option>
+    </select><br>
+    <label>Gestor:</label><br>
+    <select id="gestor">
+        <option value="">-- Seleccione --</option>
+    </select><br>
+    <label>Vendedor:</label><br>
+    <select id="vendedor">
+        <option value="">-- Seleccione --</option>
+    </select><br>
+    <label>Buscar Cliente:</label><br>
+    <input type="text" id="buscador" placeholder="Escriba el nombre..."><br>
+    <label>Cliente:</label><br>
+    <select id="cliente">
+        <option value="">-- Seleccione --</option>
+    </select><br>
+    <div class="button-group">
+        <button id="visitar">Visitar</button>
+        <button id="registro" disabled>Registro</button>
+        <button id="nuevoCliente">Nuevo Cliente</button>
+    </div>
+</div>
+<div id="map"></div>
+<div id="errorMsg"></div>
+
+<script>
+    var googleSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9ERHBiz2QlK1GY_pxQhMtcMfQD_uGG_E_hQHC6WO0JzFspkStVqCmuBe6tXLhHsCM31cpsAz8tsJ5/pub?output=csv";
+    var data = [];
+    var map = L.map('map').setView([18.5, -69.9], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    var markersLayer = L.layerGroup().addTo(map);
+    var markersDict = {};
+
+    var clienteSelect = document.getElementById('cliente');
+    var condicionSelect = document.getElementById('condicion');
+    var semanaSelect = document.getElementById('semana');
+    var diaSelect = document.getElementById('dia');
+    var gestorSelect = document.getElementById('gestor');
+    var vendedorSelect = document.getElementById('vendedor');
+    var buscador = document.getElementById('buscador');
+    var registroBtn = document.getElementById('registro');
+    var errorMsg = document.getElementById('errorMsg');
+
+    function mostrarError(msg) {
+        errorMsg.innerText = msg;
+        errorMsg.style.display = 'block';
+        setTimeout(() => errorMsg.style.display = 'none', 4000);
+    }
+
+    function normalizar(nombre) {
+        return nombre.toLowerCase().trim();
+    }
+
+    function cargarDatos(callback) {
+        Papa.parse(googleSheetUrl, {
+            download: true,
+            header: true,
+            complete: function(results) {
+                data = results.data.map(c => {
+                    // Calcular condición
+                    var condicion = (c["DIA"] && c["SEMANA"]) ? "Programado" : "Pendiente";
+                    return {
+                        cod_empresa: c["Cod Empresa"] || "",
+                        razonsocial: c["RazonSocial"] || "",
+                        latitud: c["Latitud"],
+                        longitud: c["Longitud"],
+                        dia: (c["DIA"] || "").toUpperCase(),
+                        semana: c["SEMANA"],
+                        gestor_servicio: c["gestor_servicio"] || "",
+                        vendedor: c["vendedor"] || "",
+                        condicion: condicion
+                    };
+                });
+                callback();
+            }
+        });
+    }
+
+    function cargarGestoresVendedores() {
+        var gestores = [...new Set(data.map(c => c.gestor_servicio).filter(x => x))];
+        var vendedores = [...new Set(data.map(c => c.vendedor).filter(x => x))];
+
+        gestorSelect.innerHTML = '<option value="">-- Seleccione --</option>';
+        vendedorSelect.innerHTML = '<option value="">-- Seleccione --</option>';
+
+        gestores.forEach(g => {
+            var option = document.createElement('option');
+            option.value = g; option.text = g;
+            gestorSelect.appendChild(option);
+        });
+        vendedores.forEach(v => {
+            var option = document.createElement('option');
+            option.value = v; option.text = v;
+            vendedorSelect.appendChild(option);
+        });
+    }
+
+    function cargarClientes() {
+        markersLayer.clearLayers();
+        markersDict = {}
+        clienteSelect.innerHTML = '<option value="">-- Seleccione --</option>';
+        var bounds = [];
+
+        data.filter(c => 
+            (condicionSelect.value === '' || c.condicion === condicionSelect.value) &&
+            (semanaSelect.value === '' || c.semana == semanaSelect.value) &&
+            (diaSelect.value === '' || c.dia === diaSelect.value.toUpperCase()) &&
+            (gestorSelect.value === '' || c.gestor_servicio === gestorSelect.value) &&
+            (vendedorSelect.value === '' || c.vendedor === vendedorSelect.value) &&
+            (buscador.value === '' || c.razonsocial.toLowerCase().includes(buscador.value.toLowerCase()))
+        ).forEach(cliente => {
+            var option = document.createElement('option');
+            option.value = cliente.cod_empresa;
+            option.text = cliente.razonsocial;
+            clienteSelect.appendChild(option);
+
+            if (cliente.latitud && cliente.longitud) {
+                var color = cliente.condicion === "Pendiente" ? "gray" : "blue";
+                var marker = L.circleMarker([cliente.latitud, cliente.longitud], {
+                    radius: 8,
+                    color: color,
+                    fillOpacity: 0.8
+                }).addTo(markersLayer);
+
+                var popup = `<b>${cliente.razonsocial}</b><br>Estado: ${cliente.condicion}`;
+                if (cliente.condicion === "Programado") {
+                    popup += `<br>Semana: ${cliente.semana}<br>Día: ${cliente.dia}`;
+                } else {
+                    popup += "<br>(sin fecha programada)";
+                }
+                marker.bindPopup(popup);
+                markersDict[cliente.cod_empresa] = marker;
+                bounds.push([cliente.latitud, cliente.longitud]);
+            }
+        });
+
+        if (bounds.length > 0) {
+            map.fitBounds(bounds);
+        }
+    }
+
+    clienteSelect.addEventListener('change', function() {
+        var cliente = data.find(c => c.cod_empresa === this.value);
+        if (cliente) {
+            if (cliente.gestor_servicio) gestorSelect.value = cliente.gestor_servicio;
+            else gestorSelect.value = "";
+            if (cliente.vendedor) vendedorSelect.value = cliente.vendedor;
+            else vendedorSelect.value = "";
+            if (markersDict[cliente.cod_empresa]) {
+                map.setView(markersDict[cliente.cod_empresa].getLatLng(), 15);
+                markersDict[cliente.cod_empresa].openPopup();
+            }
+            registroBtn.disabled = false;
+        } else {
+            registroBtn.disabled = true;
+        }
+    });
+
+    condicionSelect.addEventListener('change', cargarClientes);
+    semanaSelect.addEventListener('change', cargarClientes);
+    diaSelect.addEventListener('change', cargarClientes);
+    gestorSelect.addEventListener('change', cargarClientes);
+    vendedorSelect.addEventListener('change', cargarClientes);
+    buscador.addEventListener('input', cargarClientes);
+
+    document.getElementById('toggleButton').addEventListener('click', function() {
+        var controls = document.getElementById('controls');
+        controls.style.display = controls.style.display === 'block' ? 'none' : 'block';
+    });
+
+    cargarDatos(function() {
+        cargarGestoresVendedores();
+        cargarClientes();
+    });
+</script>
+</body>
+</html>
